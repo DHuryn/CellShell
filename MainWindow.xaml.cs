@@ -42,6 +42,7 @@ public partial class MainWindow : Window
     private bool _isExecuting;
     private bool _isRedrawing;
     private int _drawnRows = SpreadsheetModel.MinVisibleRows;
+    private Border? _expandedOverlay;
 
     public MainWindow()
     {
@@ -54,6 +55,17 @@ public partial class MainWindow : Window
 
         PreviewMouseMove += Window_PreviewMouseMove;
         PreviewMouseUp += Window_PreviewMouseUp;
+        PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            if (e.ClickCount == 2)
+                HandleCellDoubleClick(e);
+            else
+                DismissExpanded();
+        };
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Escape) DismissExpanded();
+        };
 
         Loaded += (_, _) => RedrawAll();
         SizeChanged += (_, _) =>
@@ -72,6 +84,8 @@ public partial class MainWindow : Window
 
     private void RedrawAll()
     {
+        DismissExpanded();
+
         // Ensure we always have enough columns to fill the viewport
         Model.EnsureColumnsForWidth(GridScroller.ViewportWidth);
 
@@ -150,6 +164,8 @@ public partial class MainWindow : Window
 
     private void RedrawGrid()
     {
+        DismissExpanded();
+
         var sw = Stopwatch.StartNew();
         CellCanvas.Children.Clear();
         RowNumbersPanel.Children.Clear();
@@ -360,7 +376,7 @@ public partial class MainWindow : Window
             var delta = e.GetPosition(this).X - _dragStartPos;
             Model.ColWidths[_dragIndex] = Math.Max(
                 SpreadsheetModel.MinColWidth, _dragStartSize + delta);
-            RedrawHeaders();
+            RedrawAll();
             e.Handled = true;
         }
         else if (_dragMode == DragMode.RowResize)
@@ -368,6 +384,7 @@ public partial class MainWindow : Window
             var delta = e.GetPosition(this).Y - _dragStartPos;
             Model.SetRowHeight(_dragIndex,
                 Math.Max(SpreadsheetModel.MinRowHeight, (int)(_dragStartSize + delta)));
+            RedrawAll();
             e.Handled = true;
         }
     }
@@ -450,10 +467,101 @@ public partial class MainWindow : Window
             Math.Max(0, targetY - GridScroller.ViewportHeight + rowH * 2));
     }
 
+    // ─── Cell expand overlay ──────────────────────────────────────
+
+    private void DismissExpanded()
+    {
+        if (_expandedOverlay != null)
+        {
+            CellCanvas.Children.Remove(_expandedOverlay);
+            _expandedOverlay = null;
+        }
+    }
+
+    private void HandleCellDoubleClick(MouseButtonEventArgs e)
+    {
+        var pos = e.GetPosition(CellCanvas);
+        if (pos.X < 0 || pos.Y < 0) return;
+
+        // Find row
+        int row = -1;
+        double cellY = 0;
+        for (int r = 0; r < _drawnRows; r++)
+        {
+            var rh = Model.GetRowHeight(r);
+            if (pos.Y < cellY + rh) { row = r; break; }
+            cellY += rh;
+        }
+        if (row < 0 || row >= Model.Rows.Count) return;
+
+        // Find column
+        int col = -1;
+        double cellX = 0;
+        for (int c = 0; c < Model.ColCount; c++)
+        {
+            var w = Model.ColWidths[c];
+            if (pos.X < cellX + w) { col = c; break; }
+            cellX += w;
+        }
+        if (col < 0 || col > 1) return;
+
+        // Get text: column A = command, column B = raw output
+        var data = Model.Rows[row];
+        string? text = col == 0 ? data.Command : data.Output;
+        if (string.IsNullOrEmpty(text)) return;
+
+        // Don't expand the active cell's command (column A) — it's a TextBox for editing
+        if (row == Model.ActiveRowIndex && col == 0) return;
+
+        var cellW = Model.ColWidths[col];
+        var cellH = Model.GetRowHeight(row);
+        bool isErr = col == 1 && data.Status == CellStatus.Error;
+
+        ExpandCell(text, cellX, cellY, cellW, cellH, isErr);
+        e.Handled = true;
+    }
+
+    private void ExpandCell(string text, double cellLeft, double cellTop, double cellWidth, double cellHeight, bool isError)
+    {
+        DismissExpanded();
+
+        var maxW = Math.Max(200, GridScroller.ViewportWidth / 2);
+        var maxH = Math.Max(100, GridScroller.ViewportHeight);
+
+        var tb = new TextBlock
+        {
+            Text = text,
+            TextWrapping = TextWrapping.Wrap,
+            FontFamily = CellFont,
+            FontSize = Model.CellFontSize,
+            Padding = new Thickness(6, 4, 6, 4),
+            Foreground = isError ? Brushes.Red : Brushes.Black,
+            MaxWidth = maxW,
+            MaxHeight = maxH
+        };
+
+        var overlay = new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x40, 0x40, 0x40)),
+            BorderThickness = new Thickness(1),
+            Child = tb,
+            MinWidth = cellWidth,
+            MinHeight = cellHeight
+        };
+
+        Canvas.SetLeft(overlay, cellLeft);
+        Canvas.SetTop(overlay, cellTop);
+        Panel.SetZIndex(overlay, 100);
+        CellCanvas.Children.Add(overlay);
+        _expandedOverlay = overlay;
+    }
+
     // ─── Scroll sync ─────────────────────────────────────────────
 
     private void GridScroller_ScrollChanged(object sender, ScrollChangedEventArgs e)
     {
+        DismissExpanded();
         RowNumberScroller.ScrollToVerticalOffset(e.VerticalOffset);
         HeaderCanvas.RenderTransform = new TranslateTransform(-e.HorizontalOffset, 0);
 
