@@ -1,0 +1,155 @@
+<Window x:Class="CellShell.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Book1 - Excel"
+        Width="1100" Height="700"
+        WindowStartupLocation="CenterScreen"
+        Background="White"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True">
+
+    <Window.Resources>
+        <SolidColorBrush x:Key="ExcelGreen" Color="#217346"/>
+        <SolidColorBrush x:Key="GridLine" Color="#D6D6D6"/>
+        <SolidColorBrush x:Key="HeaderBg" Color="#E6E6E6"/>
+        <SolidColorBrush x:Key="HeaderBorder" Color="#D6D6D6"/>
+
+        <Style x:Key="RibbonMenu" TargetType="Menu">
+            <Setter Property="Background" Value="{StaticResource ExcelGreen}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontFamily" Value="Segoe UI"/>
+        </Style>
+        <Style x:Key="RibbonTopItem" TargetType="MenuItem">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Padding" Value="8,4"/>
+        </Style>
+        <Style x:Key="DropdownItem" TargetType="MenuItem">
+            <Setter Property="Foreground" Value="#333333"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel LastChildFill="True">
+
+        <!-- Menu/Ribbon Bar -->
+        <Menu DockPanel.Dock="Top" Style="{StaticResource RibbonMenu}" x:Name="RibbonMenu">
+            <MenuItem Header="_File" Style="{StaticResource RibbonTopItem}">
+                <MenuItem Header="_New Window" Click="Menu_NewWindow" Style="{StaticResource DropdownItem}"/>
+                <MenuItem Header="_Open..." Click="Menu_Open" Style="{StaticResource DropdownItem}"/>
+                <MenuItem Header="_Save As .xlsx" Click="Menu_Save" Style="{StaticResource DropdownItem}"/>
+                <Separator/>
+                <MenuItem Header="E_xit" Click="Menu_Exit" Style="{StaticResource DropdownItem}"/>
+            </MenuItem>
+            <MenuItem Header="_Home" Style="{StaticResource RibbonTopItem}">
+                <MenuItem Header="_Bold" Click="Menu_Bold" Style="{StaticResource DropdownItem}"/>
+                <MenuItem Header="_Italic" Click="Menu_Italic" Style="{StaticResource DropdownItem}"/>
+                <MenuItem Header="_Font Size" Click="Menu_FontSize" Style="{StaticResource DropdownItem}"/>
+            </MenuItem>
+            <MenuItem Header="_Insert" Style="{StaticResource RibbonTopItem}">
+                <MenuItem Header="_Function..." Click="Menu_InsertFunction" Style="{StaticResource DropdownItem}"/>
+                <MenuItem Header="_Chart" Click="Menu_InsertChart" Style="{StaticResource DropdownItem}"/>
+            </MenuItem>
+            <MenuItem Header="Page _Layout" Style="{StaticResource RibbonTopItem}">
+                <MenuItem Header="_Margins" Click="Menu_Margins" Style="{StaticResource DropdownItem}"/>
+                <MenuItem Header="_Orientation" Click="Menu_Orientation" Style="{StaticResource DropdownItem}"/>
+                <MenuItem Header="_Print Area" Click="Menu_PrintArea" Style="{StaticResource DropdownItem}"/>
+            </MenuItem>
+            <MenuItem Header="F_ormulas" Style="{StaticResource RibbonTopItem}">
+                <MenuItem Header="_Insert Function" Click="Menu_InsertFunction" Style="{StaticResource DropdownItem}"/>
+            </MenuItem>
+            <MenuItem Header="_Data" Style="{StaticResource RibbonTopItem}">
+                <MenuItem Header="_Refresh All" Click="Menu_RefreshAll" Style="{StaticResource DropdownItem}"/>
+                <MenuItem Header="_Sort" Click="Menu_Sort" Style="{StaticResource DropdownItem}"/>
+            </MenuItem>
+            <MenuItem Header="_Review" Style="{StaticResource RibbonTopItem}">
+                <MenuItem Header="_Spell Check" Click="Menu_SpellCheck" Style="{StaticResource DropdownItem}"/>
+                <MenuItem Header="_Track Changes" Click="Menu_TrackChanges" Style="{StaticResource DropdownItem}"/>
+            </MenuItem>
+            <MenuItem Header="_View" Style="{StaticResource RibbonTopItem}">
+                <MenuItem Header="_Formula Bar" Click="Menu_FormulaBar" Style="{StaticResource DropdownItem}"/>
+                <MenuItem Header="_Zoom In" Click="Menu_ZoomIn" Style="{StaticResource DropdownItem}"/>
+                <MenuItem Header="_Zoom Out" Click="Menu_ZoomOut" Style="{StaticResource DropdownItem}"/>
+                <Separator/>
+                <MenuItem Header="Text Size _+" Click="Menu_TextSizeUp" Style="{StaticResource DropdownItem}"/>
+                <MenuItem Header="Text Size _-" Click="Menu_TextSizeDown" Style="{StaticResource DropdownItem}"/>
+            </MenuItem>
+            <MenuItem Header="_Help" Style="{StaticResource RibbonTopItem}">
+                <MenuItem Header="_About CellShell" Click="Menu_About" Style="{StaticResource DropdownItem}"/>
+                <MenuItem Header="_Clippy says..." Click="Menu_Clippy" Style="{StaticResource DropdownItem}"/>
+            </MenuItem>
+        </Menu>
+
+        <!-- Formula Bar -->
+        <Border DockPanel.Dock="Top" BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
+                Background="White" Height="26">
+            <DockPanel>
+                <Border DockPanel.Dock="Left" BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                        Width="70" Margin="0">
+                    <TextBlock x:Name="NameBox" Text="A1" VerticalAlignment="Center"
+                               Padding="4,0" FontFamily="Segoe UI" FontSize="11"/>
+                </Border>
+                <Border DockPanel.Dock="Left" BorderBrush="{StaticResource GridLine}" BorderThickness="1,0,0,0"
+                        Width="1" Margin="2,2"/>
+                <TextBlock DockPanel.Dock="Left" Text=" fx " VerticalAlignment="Center"
+                           Foreground="Gray" FontFamily="Segoe UI" FontSize="11" Margin="2,0"/>
+                <Border DockPanel.Dock="Left" BorderBrush="{StaticResource GridLine}" BorderThickness="1,0,0,0"
+                        Width="1" Margin="2,2"/>
+                <TextBlock x:Name="FormulaText" Text="=EXEC(&quot;&quot;)" VerticalAlignment="Center"
+                           Padding="4,0" FontFamily="Segoe UI" FontSize="11"/>
+            </DockPanel>
+        </Border>
+
+        <!-- Status Bar -->
+        <Border DockPanel.Dock="Bottom" Background="{StaticResource ExcelGreen}" Height="24">
+            <DockPanel>
+                <TextBlock x:Name="StatusText" Text=" Ready" Foreground="White"
+                           VerticalAlignment="Center" FontFamily="Segoe UI" FontSize="11"
+                           DockPanel.Dock="Left" Margin="4,0"/>
+                <TextBlock Text=" Sheet1  |  + " Foreground="White"
+                           VerticalAlignment="Center" FontFamily="Segoe UI" FontSize="11"
+                           DockPanel.Dock="Right" HorizontalAlignment="Right" Margin="0,0,8,0"/>
+                <TextBlock Text="" DockPanel.Dock="Left"/>
+            </DockPanel>
+        </Border>
+
+        <!-- Spreadsheet Grid Area -->
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="40"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Corner cell -->
+            <Border Grid.Row="0" Grid.Column="0" x:Name="CornerCell"
+                    Background="{StaticResource HeaderBg}"
+                    BorderBrush="{StaticResource HeaderBorder}" BorderThickness="0,0,1,1"/>
+
+            <!-- Column headers (clipped, synced horizontally) -->
+            <Grid Grid.Row="0" Grid.Column="1" ClipToBounds="True">
+                <Canvas x:Name="HeaderCanvas"/>
+            </Grid>
+
+            <!-- Row numbers -->
+            <ScrollViewer Grid.Row="1" Grid.Column="0" x:Name="RowNumberScroller"
+                          VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled"
+                          Padding="0" BorderThickness="0" ClipToBounds="True">
+                <StackPanel Orientation="Vertical" x:Name="RowNumbersPanel"/>
+            </ScrollViewer>
+
+            <!-- Cell grid -->
+            <ScrollViewer Grid.Row="1" Grid.Column="1" x:Name="GridScroller"
+                          HorizontalScrollBarVisibility="Auto"
+                          VerticalScrollBarVisibility="Auto"
+                          Padding="0" BorderThickness="0"
+                          ScrollChanged="GridScroller_ScrollChanged">
+                <Canvas x:Name="CellCanvas" Background="White" ClipToBounds="True"/>
+            </ScrollViewer>
+        </Grid>
+    </DockPanel>
+</Window>
