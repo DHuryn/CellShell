@@ -726,7 +726,8 @@ public partial class MainWindow : Window
 
     private void GridScroller_ScrollChanged(object sender, ScrollChangedEventArgs e)
     {
-        DismissExpanded();
+        if (e.VerticalChange != 0 || e.HorizontalChange != 0)
+            DismissExpanded();
         RowNumberScroller.ScrollToVerticalOffset(e.VerticalOffset);
         HeaderCanvas.RenderTransform = new TranslateTransform(-e.HorizontalOffset, 0);
 
