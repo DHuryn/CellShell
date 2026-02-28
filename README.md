@@ -25,9 +25,14 @@ Every command is wrapped in the only formula that matters: `=EXEC("your command 
 ## Requirements
 
 - Windows 10/11
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
 
 ## Getting Started
+
+Grab `CellShell.exe` from the [latest release](https://github.com/DHuryn/CellShell/releases/latest) and run it. No install needed.
+
+### Build from source
+
+Requires [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0).
 
 ```
 git clone https://github.com/DHuryn/CellShell.git
