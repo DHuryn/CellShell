@@ -148,7 +148,7 @@
             <ScrollViewer Grid.Row="1" Grid.Column="0" x:Name="RowNumberScroller"
                           VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled"
                           Padding="0" BorderThickness="0" ClipToBounds="True">
-                <StackPanel Orientation="Vertical" x:Name="RowNumbersPanel"/>
+                <Canvas x:Name="RowNumbersPanel"/>
             </ScrollViewer>
 
             <!-- Cell grid -->

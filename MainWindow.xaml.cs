@@ -88,10 +88,8 @@ public partial class MainWindow : Window
         Loaded += (_, _) => RedrawAll();
         SizeChanged += (_, _) =>
         {
-            var oldCount = Model.ColCount;
             Model.EnsureColumnsForWidth(GridScroller.ViewportWidth);
-            if (Model.ColCount != oldCount)
-                RedrawAll();
+            RedrawAll();
         };
     }
 
@@ -147,8 +145,36 @@ public partial class MainWindow : Window
         CornerCell.Height = headerH;
         HeaderCanvas.Height = headerH;
 
+        var colCount = Model.ColCount;
+        var totalW = Model.TotalWidth;
+        HeaderCanvas.Width = totalW;
+
+        // Compute visible column range
+        var hLeft = GridScroller.HorizontalOffset;
+        var hRight = hLeft + GridScroller.ViewportWidth;
+
+        int firstCol = 0, lastCol = colCount - 1;
+        double cx = 0;
+        for (int c = 0; c < colCount; c++)
+        {
+            var next = cx + Model.ColWidths[c];
+            if (next >= hLeft) { firstCol = Math.Max(0, c - 1); break; }
+            cx = next;
+            if (c == colCount - 1) firstCol = c;
+        }
+        cx = 0;
+        for (int c = 0; c < firstCol; c++) cx += Model.ColWidths[c];
+        for (int c = firstCol; c < colCount; c++)
+        {
+            if (cx > hRight) { lastCol = Math.Min(colCount - 1, c + 1); break; }
+            cx += Model.ColWidths[c];
+        }
+
+        // Render visible headers
         double x = 0;
-        for (int i = 0; i < Model.ColCount; i++)
+        for (int c = 0; c < firstCol; c++) x += Model.ColWidths[c];
+
+        for (int i = firstCol; i <= lastCol; i++)
         {
             var colIndex = i;
             var w = Model.ColWidths[i];
@@ -198,30 +224,84 @@ public partial class MainWindow : Window
 
             x += w;
         }
-
-        HeaderCanvas.Width = x;
     }
 
     // ─── Grid Drawing ─────────────────────────────────────────────
 
     private void RedrawGrid()
     {
-        DismissExpanded();
-
         var sw = Stopwatch.StartNew();
         CellCanvas.Children.Clear();
         RowNumbersPanel.Children.Clear();
         _outputCells.Clear();
         _outputBorders.Clear();
+        _activeTextBox = null;
+        _activeTextBoxRow = -1;
 
         _drawnRows = Math.Max(_drawnRows, Math.Max(Model.Rows.Count + 1, SpreadsheetModel.MinVisibleRows));
         var totalRows = _drawnRows;
+        var colCount = Model.ColCount;
+
+        // ── Pre-compute layout positions ────────────────────────────
         CellCanvas.Width = Model.TotalWidth;
 
-        double y = 0;
+        var rowY = new double[totalRows + 1];
+        double cumY = 0;
         for (int r = 0; r < totalRows; r++)
         {
+            rowY[r] = cumY;
+            cumY += Model.GetRowHeight(r);
+        }
+        rowY[totalRows] = cumY;
+        CellCanvas.Height = cumY;
+
+        var colX = new double[colCount + 1];
+        double cumX = 0;
+        for (int c = 0; c < colCount; c++)
+        {
+            colX[c] = cumX;
+            cumX += Model.ColWidths[c];
+        }
+        colX[colCount] = cumX;
+
+        // ── Visible range (with buffer) ─────────────────────────────
+        var vTop = GridScroller.VerticalOffset;
+        var vBot = vTop + GridScroller.ViewportHeight;
+        var hLeft = GridScroller.HorizontalOffset;
+        var hRight = hLeft + GridScroller.ViewportWidth;
+
+        int firstRow = 0;
+        for (int r = 0; r < totalRows; r++)
+        {
+            if (rowY[r + 1] >= vTop) { firstRow = Math.Max(0, r - 2); break; }
+            if (r == totalRows - 1) firstRow = r;
+        }
+        int lastRow = totalRows - 1;
+        for (int r = firstRow; r < totalRows; r++)
+        {
+            if (rowY[r] > vBot) { lastRow = Math.Min(totalRows - 1, r + 2); break; }
+        }
+
+        int firstCol = 0;
+        for (int c = 0; c < colCount; c++)
+        {
+            if (colX[c + 1] >= hLeft) { firstCol = Math.Max(0, c - 1); break; }
+            if (c == colCount - 1) firstCol = c;
+        }
+        int lastCol = colCount - 1;
+        for (int c = firstCol; c < colCount; c++)
+        {
+            if (colX[c] > hRight) { lastCol = Math.Min(colCount - 1, c + 1); break; }
+        }
+
+        // Row number canvas matches grid height
+        RowNumbersPanel.Height = cumY;
+
+        // ── Render visible rows ─────────────────────────────────────
+        for (int r = firstRow; r <= lastRow; r++)
+        {
             var rh = Model.GetRowHeight(r);
+            var y = rowY[r];
 
             // Row number
             var rowNumBorder = new Border
@@ -267,11 +347,12 @@ public partial class MainWindow : Window
             };
             rowNumContainer.Children.Add(rowNumBorder);
             rowNumContainer.Children.Add(rowResizeHandle);
+            Canvas.SetLeft(rowNumContainer, 0);
+            Canvas.SetTop(rowNumContainer, y);
             RowNumbersPanel.Children.Add(rowNumContainer);
 
-            // Cells
-            double x = 0;
-            for (int c = 0; c < Model.ColCount; c++)
+            // Cells — only visible columns
+            for (int c = firstCol; c <= lastCol; c++)
             {
                 var isActiveCell = r == Model.ActiveRowIndex && c == 0;
                 var borderThickness = isActiveCell
@@ -384,22 +465,17 @@ public partial class MainWindow : Window
                     }
                 }
 
-                Canvas.SetLeft(cellBorder, x);
+                Canvas.SetLeft(cellBorder, colX[c]);
                 Canvas.SetTop(cellBorder, y);
                 CellCanvas.Children.Add(cellBorder);
-
-                x += Model.ColWidths[c];
             }
-
-            y += rh;
         }
 
-        CellCanvas.Height = y;
         sw.Stop();
-        Log($"RedrawGrid: {totalRows} rows, {CellCanvas.Children.Count} cells, {sw.ElapsedMilliseconds}ms, active={Model.ActiveRowIndex}");
+        Log($"RedrawGrid: rows {firstRow}-{lastRow}/{totalRows}, cols {firstCol}-{lastCol}/{colCount}, {CellCanvas.Children.Count} elems, {sw.ElapsedMilliseconds}ms, active={Model.ActiveRowIndex}");
 
         var tbToFocus = _activeTextBox;
-        if (tbToFocus != null)
+        if (tbToFocus != null && _dragMode == DragMode.None)
         {
             Dispatcher.BeginInvoke(() =>
             {
@@ -775,6 +851,11 @@ public partial class MainWindow : Window
         }
     }
 
+    // ─── Internal accessors for perf testing ────────────────────
+
+    internal void ForceRedraw() => RedrawAll();
+    internal ScrollViewer GridScrollerAccess => GridScroller;
+
     // ─── Scroll sync ─────────────────────────────────────────────
 
     private void GridScroller_ScrollChanged(object sender, ScrollChangedEventArgs e)
@@ -784,14 +865,21 @@ public partial class MainWindow : Window
         RowNumberScroller.ScrollToVerticalOffset(e.VerticalOffset);
         HeaderCanvas.RenderTransform = new TranslateTransform(-e.HorizontalOffset, 0);
 
-        // Infinite scroll: extend grid when user scrolls near the bottom
-        // Only extend when user has actually scrolled (VerticalOffset > 0) to prevent
-        // startup cascade — layout changes fire ScrollChanged which would loop forever
-        if (!_isRedrawing && e.VerticalOffset > 0
-            && e.VerticalOffset + e.ViewportHeight >= e.ExtentHeight - Model.DefaultRowHeight * 5)
+        // Re-render visible cells on actual scroll position changes
+        if (!_isRedrawing && (e.VerticalChange != 0 || e.HorizontalChange != 0))
         {
             _isRedrawing = true;
-            _drawnRows += 30;
+            SaveDraftCommand();
+
+            // Infinite scroll: extend when near the bottom
+            if (e.VerticalOffset > 0
+                && e.VerticalOffset + e.ViewportHeight >= e.ExtentHeight - Model.DefaultRowHeight * 5)
+            {
+                _drawnRows += 30;
+            }
+
+            if (e.HorizontalChange != 0)
+                RedrawHeaders();
             RedrawGrid();
             _isRedrawing = false;
         }
