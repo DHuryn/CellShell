@@ -107,9 +107,18 @@
                 <TextBlock x:Name="StatusText" Text=" Ready" Foreground="White"
                            VerticalAlignment="Center" FontFamily="Segoe UI" FontSize="11"
                            DockPanel.Dock="Left" Margin="4,0"/>
-                <TextBlock Text=" Sheet1  |  + " Foreground="White"
-                           VerticalAlignment="Center" FontFamily="Segoe UI" FontSize="11"
-                           DockPanel.Dock="Right" HorizontalAlignment="Right" Margin="0,0,8,0"/>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,8,0">
+                    <TextBlock x:Name="ShellLabel" Text="cmd ▾" Foreground="White"
+                               VerticalAlignment="Center" FontFamily="Segoe UI" FontSize="11"
+                               Cursor="Hand" MouseLeftButtonDown="ShellLabel_Click"
+                               Margin="0,0,8,0">
+                        <TextBlock.TextDecorations>
+                            <TextDecoration Location="Underline"/>
+                        </TextBlock.TextDecorations>
+                    </TextBlock>
+                    <TextBlock Text=" Sheet1  |  + " Foreground="White"
+                               VerticalAlignment="Center" FontFamily="Segoe UI" FontSize="11"/>
+                </StackPanel>
                 <TextBlock Text="" DockPanel.Dock="Left"/>
             </DockPanel>
         </Border>

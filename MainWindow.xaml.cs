@@ -445,7 +445,20 @@ public partial class MainWindow : Window
     private void UpdateFormulaBar(string command)
     {
         var escaped = command.Replace("\"", "\"\"");
-        FormulaText.Text = $"=EXEC(\"{escaped}\")";
+        var func = CommandExecutor.CurrentShell == ShellType.PowerShell ? "EXEC.PS" : "EXEC";
+        FormulaText.Text = $"={func}(\"{escaped}\")";
+    }
+
+    private void ShellLabel_Click(object sender, MouseButtonEventArgs e)
+    {
+        CommandExecutor.CurrentShell = CommandExecutor.CurrentShell == ShellType.Cmd
+            ? ShellType.PowerShell
+            : ShellType.Cmd;
+
+        ShellLabel.Text = CommandExecutor.CurrentShell == ShellType.PowerShell ? "pwsh ▾" : "cmd ▾";
+
+        UpdateFormulaBar(Model.ActiveRowIndex < Model.Rows.Count
+            ? Model.Rows[Model.ActiveRowIndex].Command : "");
     }
 
     // ─── Window-level drag ───────────────────────────────────────

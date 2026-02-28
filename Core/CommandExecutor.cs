@@ -3,9 +3,13 @@ using System.IO;
 
 namespace CellShell.Core;
 
+public enum ShellType { Cmd, PowerShell }
+
 public static class CommandExecutor
 {
     private static string _workingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+    public static ShellType CurrentShell { get; set; } = ShellType.Cmd;
 
     public static string WorkingDirectory => _workingDirectory;
 
@@ -39,10 +43,11 @@ public static class CommandExecutor
             return $"The system cannot find the path specified: {target}";
         }
 
+        var (fileName, arguments) = GetShellCommand(command);
         var psi = new ProcessStartInfo
         {
-            FileName = "cmd.exe",
-            Arguments = $"/c {command}",
+            FileName = fileName,
+            Arguments = arguments,
             WorkingDirectory = _workingDirectory,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -127,10 +132,11 @@ public static class CommandExecutor
             return;
         }
 
+        var (fileName, arguments) = GetShellCommand(command);
         var psi = new ProcessStartInfo
         {
-            FileName = "cmd.exe",
-            Arguments = $"/c {command}",
+            FileName = fileName,
+            Arguments = arguments,
             WorkingDirectory = _workingDirectory,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -173,5 +179,27 @@ public static class CommandExecutor
         }
         processCallback?.Invoke(null);
         process.Dispose();
+    }
+
+    private static (string FileName, string Arguments) GetShellCommand(string command)
+    {
+        if (CurrentShell == ShellType.Cmd)
+            return ("cmd.exe", $"/c {command}");
+
+        // Prefer pwsh (PowerShell 7+), fall back to powershell (Windows PowerShell 5.1)
+        var pwsh = FindExecutable("pwsh");
+        var exe = pwsh ?? "powershell";
+        return (exe, $"-NoProfile -Command {command}");
+    }
+
+    private static string? FindExecutable(string name)
+    {
+        var pathVar = Environment.GetEnvironmentVariable("PATH") ?? "";
+        foreach (var dir in pathVar.Split(Path.PathSeparator))
+        {
+            var full = Path.Combine(dir, name + ".exe");
+            if (File.Exists(full)) return full;
+        }
+        return null;
     }
 }
