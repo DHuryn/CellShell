@@ -17,6 +17,7 @@ Every command is wrapped in the only formula that matters: `=EXEC("your command 
 - **Live streaming output** 
 - **Concurrent execution** — Run multiple commands at once. Each row is independent. 
 - **Expand output** — Double-click any cell to see the full output in a scrollable overlay. Running commands auto-scroll.
+- **Shell toggle** — Click `cmd ▾` in the status bar to switch between `cmd.exe` and PowerShell. Formula bar shows `=EXEC()` or `=EXEC.PS()`.
 - **Ctrl+C** — Kill the active row's process. Like a real terminal, except it looks like you're editing a spreadsheet.
 - **Resizable columns and rows** — Drag to resize, just like the real thing. Double-click a cell to auto-expand.
 - **The menus work** — They just don't do what you'd expect. Try Help > Clippy.
@@ -45,6 +46,7 @@ Then type a command in cell A1 and press Enter. Pretend you're working on whatev
 | Kill a process | Select the row, press Ctrl+C |
 | Navigate rows | Click any row to select it |
 | Resize columns | Drag column header borders |
+| Switch shell | Click `cmd ▾` / `pwsh ▾` in status bar |
 | Change text size | View > Text Size +/- |
 
 ### Debug mode
