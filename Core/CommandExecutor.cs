@@ -9,7 +9,7 @@ public static class CommandExecutor
 
     public static string WorkingDirectory => _workingDirectory;
 
-    public static async Task<string> ExecuteAsync(string command, int timeoutMs = 30000)
+    public static async Task<string> ExecuteAsync(string command, int timeoutMs = 0)
     {
         // Handle cd commands to update working directory
         var trimmed = command.Trim();
@@ -51,26 +51,31 @@ public static class CommandExecutor
         };
 
         using var process = new Process { StartInfo = psi };
-        using var cts = new CancellationTokenSource(timeoutMs);
-
         process.Start();
 
         // Read both streams concurrently to avoid pipe deadlock
         var stdoutTask = process.StandardOutput.ReadToEndAsync();
         var stderrTask = process.StandardError.ReadToEndAsync();
 
-        try
+        if (timeoutMs > 0)
         {
-            await process.WaitForExitAsync(cts.Token);
+            using var cts = new CancellationTokenSource(timeoutMs);
+            try
+            {
+                await process.WaitForExitAsync(cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                try { process.Kill(entireProcessTree: true); } catch { }
+                try { await Task.WhenAll(stdoutTask, stderrTask).WaitAsync(TimeSpan.FromSeconds(2)); } catch { }
+                var partialOut = stdoutTask.IsCompletedSuccessfully ? stdoutTask.Result : "";
+                var partialErr = stderrTask.IsCompletedSuccessfully ? stderrTask.Result : "";
+                return partialOut + partialErr + $"\n[Timed out after {timeoutMs / 1000}s]";
+            }
         }
-        catch (OperationCanceledException)
+        else
         {
-            try { process.Kill(entireProcessTree: true); } catch { }
-            // Wait briefly for stream tasks to complete after kill
-            try { await Task.WhenAll(stdoutTask, stderrTask).WaitAsync(TimeSpan.FromSeconds(2)); } catch { }
-            var partialOut = stdoutTask.IsCompletedSuccessfully ? stdoutTask.Result : "";
-            var partialErr = stderrTask.IsCompletedSuccessfully ? stderrTask.Result : "";
-            return partialOut + partialErr + "\n[Timed out after 30s]";
+            await process.WaitForExitAsync();
         }
 
         var stdout = await stdoutTask;
@@ -90,7 +95,7 @@ public static class CommandExecutor
         string command,
         Action<string> onOutput,
         Action<Process?>? processCallback = null,
-        int timeoutMs = 30000)
+        int timeoutMs = 0)
     {
         // Handle cd commands the same as the sync version
         var trimmed = command.Trim();
@@ -151,15 +156,21 @@ public static class CommandExecutor
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 
-        using var cts = new CancellationTokenSource(timeoutMs);
-        using var reg = cts.Token.Register(() =>
+        if (timeoutMs > 0)
         {
-            try { process.Kill(entireProcessTree: true); } catch { }
-            onOutput("[Timed out after 30s]");
-            tcs.TrySetResult(false);
-        });
-
-        await tcs.Task;
+            using var cts = new CancellationTokenSource(timeoutMs);
+            using var reg = cts.Token.Register(() =>
+            {
+                try { process.Kill(entireProcessTree: true); } catch { }
+                onOutput($"[Timed out after {timeoutMs / 1000}s]");
+                tcs.TrySetResult(false);
+            });
+            await tcs.Task;
+        }
+        else
+        {
+            await tcs.Task;
+        }
         processCallback?.Invoke(null);
         process.Dispose();
     }

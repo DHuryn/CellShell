@@ -46,16 +46,22 @@ public partial class MainWindow : Window
     private int _expandedRow = -1;
     private TextBlock? _expandedTextBlock;
     private ScrollViewer? _expandedScroller;
+    private int _activeTextBoxRow = -1;
     private readonly Dictionary<int, TextBlock> _outputCells = new();
     private readonly Dictionary<int, Border> _outputBorders = new();
+    private readonly Stopwatch _dragRedrawTimer = new();
 
     public MainWindow()
     {
         InitializeComponent();
 
-        var logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "cellshell-debug.log");
-        Trace.Listeners.Add(new TextWriterTraceListener(logPath));
-        Trace.AutoFlush = true;
+        var args = Environment.GetCommandLineArgs();
+        if (args.Contains("--debug", StringComparer.OrdinalIgnoreCase))
+        {
+            var logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "cellshell-debug.log");
+            Trace.Listeners.Add(new TextWriterTraceListener(logPath));
+            Trace.AutoFlush = true;
+        }
         Log("MainWindow init");
 
         PreviewMouseMove += Window_PreviewMouseMove;
@@ -92,10 +98,34 @@ public partial class MainWindow : Window
     private static void Log(string msg) =>
         Trace.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] {msg}");
 
+    // ─── Draft preservation ───────────────────────────────────────
+
+    private void SaveDraftCommand()
+    {
+        if (_activeTextBox == null || _activeTextBoxRow < 0) return;
+        var text = _activeTextBox.Text.Trim();
+        var row = _activeTextBoxRow;
+
+        if (row < Model.Rows.Count)
+        {
+            // Only overwrite if the row isn't running
+            if (Model.Rows[row].Status != CellStatus.Running)
+                Model.Rows[row].Command = text;
+        }
+        else if (!string.IsNullOrEmpty(text))
+        {
+            // Pad and create a new row with Empty status to hold the draft
+            while (Model.Rows.Count < row)
+                Model.Rows.Add(new CellData { RowNumber = Model.Rows.Count + 1, Status = CellStatus.Empty });
+            Model.Rows.Add(new CellData { RowNumber = row + 1, Command = text, Status = CellStatus.Empty });
+        }
+    }
+
     // ─── Top-level redraw ────────────────────────────────────────
 
     private void RedrawAll()
     {
+        SaveDraftCommand();
         DismissExpanded();
 
         // Ensure we always have enough columns to fill the viewport
@@ -293,6 +323,7 @@ public partial class MainWindow : Window
                         tb.TextChanged += ActiveCell_TextChanged;
                         cellBorder.Child = tb;
                         _activeTextBox = tb;
+                        _activeTextBoxRow = r;
                     }
                     else if (c == 1 && r < Model.Rows.Count)
                     {
@@ -426,7 +457,11 @@ public partial class MainWindow : Window
             var delta = e.GetPosition(this).X - _dragStartPos;
             Model.ColWidths[_dragIndex] = Math.Max(
                 SpreadsheetModel.MinColWidth, _dragStartSize + delta);
-            RedrawAll();
+            if (_dragRedrawTimer.ElapsedMilliseconds >= 16 || !_dragRedrawTimer.IsRunning)
+            {
+                _dragRedrawTimer.Restart();
+                RedrawAll();
+            }
             e.Handled = true;
         }
         else if (_dragMode == DragMode.RowResize)
@@ -434,7 +469,11 @@ public partial class MainWindow : Window
             var delta = e.GetPosition(this).Y - _dragStartPos;
             Model.SetRowHeight(_dragIndex,
                 Math.Max(SpreadsheetModel.MinRowHeight, (int)(_dragStartSize + delta)));
-            RedrawAll();
+            if (_dragRedrawTimer.ElapsedMilliseconds >= 16 || !_dragRedrawTimer.IsRunning)
+            {
+                _dragRedrawTimer.Restart();
+                RedrawAll();
+            }
             e.Handled = true;
         }
     }
@@ -445,6 +484,7 @@ public partial class MainWindow : Window
         {
             Log($"Drag end: {_dragMode} index={_dragIndex}");
             _dragMode = DragMode.None;
+            _dragRedrawTimer.Reset();
             Mouse.Capture(null);
             RedrawAll();
             e.Handled = true;
