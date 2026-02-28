@@ -24,7 +24,7 @@ jobs:
         run: dotnet test --configuration Release
 
       - name: Publish
-        run: dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+        run: dotnet publish CellShell.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
 
       - name: Create release
         uses: softprops/action-gh-release@v2
