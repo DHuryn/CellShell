@@ -81,4 +81,86 @@ public static class CommandExecutor
             result += (string.IsNullOrEmpty(result) ? "" : "\n") + stderr;
         return result.TrimEnd('\r', '\n');
     }
+
+    /// <summary>
+    /// Streams command output line-by-line via onOutput callback.
+    /// The caller's Process reference is set via processCallback so it can be killed externally.
+    /// </summary>
+    public static async Task ExecuteStreamingAsync(
+        string command,
+        Action<string> onOutput,
+        Action<Process?>? processCallback = null,
+        int timeoutMs = 30000)
+    {
+        // Handle cd commands the same as the sync version
+        var trimmed = command.Trim();
+        if (trimmed.Equals("cd", StringComparison.OrdinalIgnoreCase))
+        {
+            _workingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            onOutput(_workingDirectory);
+            return;
+        }
+        if (trimmed.StartsWith("cd ", StringComparison.OrdinalIgnoreCase))
+        {
+            var target = trimmed[3..].Trim();
+            if (target.StartsWith("/d ", StringComparison.OrdinalIgnoreCase))
+                target = target[3..].Trim();
+            if (target.Length >= 2 && target.StartsWith('"') && target.EndsWith('"'))
+                target = target[1..^1];
+            if (target == "~")
+                target = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var newDir = Path.GetFullPath(Path.Combine(_workingDirectory, target));
+            if (Directory.Exists(newDir))
+            {
+                _workingDirectory = newDir;
+                onOutput(_workingDirectory);
+            }
+            else
+            {
+                onOutput($"The system cannot find the path specified: {target}");
+            }
+            return;
+        }
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = "cmd.exe",
+            Arguments = $"/c {command}",
+            WorkingDirectory = _workingDirectory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
+        var tcs = new TaskCompletionSource<bool>();
+
+        process.OutputDataReceived += (_, e) =>
+        {
+            if (e.Data != null) onOutput(e.Data);
+        };
+        process.ErrorDataReceived += (_, e) =>
+        {
+            if (e.Data != null) onOutput(e.Data);
+        };
+        process.Exited += (_, _) => tcs.TrySetResult(true);
+
+        process.Start();
+        processCallback?.Invoke(process);
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+
+        using var cts = new CancellationTokenSource(timeoutMs);
+        using var reg = cts.Token.Register(() =>
+        {
+            try { process.Kill(entireProcessTree: true); } catch { }
+            onOutput("[Timed out after 30s]");
+            tcs.TrySetResult(false);
+        });
+
+        await tcs.Task;
+        processCallback?.Invoke(null);
+        process.Dispose();
+    }
 }

@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace CellShell.Core;
 
 public enum CellStatus
@@ -14,4 +16,6 @@ public class CellData
     public string Command { get; set; } = string.Empty;
     public string Output { get; set; } = string.Empty;
     public CellStatus Status { get; set; } = CellStatus.Empty;
+    public Process? RunningProcess { get; set; }
+    public bool WasCancelled { get; set; }
 }

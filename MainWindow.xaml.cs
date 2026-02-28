@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using CellShell.Core;
 
 namespace CellShell;
@@ -39,10 +40,14 @@ public partial class MainWindow : Window
     // ─── UI state ────────────────────────────────────────────────
 
     private TextBox? _activeTextBox;
-    private bool _isExecuting;
     private bool _isRedrawing;
     private int _drawnRows = SpreadsheetModel.MinVisibleRows;
     private Border? _expandedOverlay;
+    private int _expandedRow = -1;
+    private TextBlock? _expandedTextBlock;
+    private ScrollViewer? _expandedScroller;
+    private readonly Dictionary<int, TextBlock> _outputCells = new();
+    private readonly Dictionary<int, Border> _outputBorders = new();
 
     public MainWindow()
     {
@@ -57,6 +62,11 @@ public partial class MainWindow : Window
         PreviewMouseUp += Window_PreviewMouseUp;
         PreviewMouseLeftButtonDown += (_, e) =>
         {
+            if (_expandedOverlay != null && _expandedOverlay.IsMouseOver)
+            {
+                e.Handled = true;
+                return;
+            }
             if (e.ClickCount == 2)
                 HandleCellDoubleClick(e);
             else
@@ -65,6 +75,8 @@ public partial class MainWindow : Window
         PreviewKeyDown += (_, e) =>
         {
             if (e.Key == Key.Escape) DismissExpanded();
+            if (e.Key == Key.C && Keyboard.Modifiers == ModifierKeys.Control)
+                HandleCtrlC(e);
         };
 
         Loaded += (_, _) => RedrawAll();
@@ -169,6 +181,8 @@ public partial class MainWindow : Window
         var sw = Stopwatch.StartNew();
         CellCanvas.Children.Clear();
         RowNumbersPanel.Children.Clear();
+        _outputCells.Clear();
+        _outputBorders.Clear();
 
         _drawnRows = Math.Max(_drawnRows, Math.Max(Model.Rows.Count + 1, SpreadsheetModel.MinVisibleRows));
         var totalRows = _drawnRows;
@@ -251,7 +265,7 @@ public partial class MainWindow : Window
                     cellBorder.Cursor = Cursors.Arrow;
                     cellBorder.MouseLeftButtonDown += (s, e) =>
                     {
-                        if (_isExecuting || _dragMode != DragMode.None) return;
+                        if (_dragMode != DragMode.None) return;
                         Log($"Cell click: row={clickTarget}");
                         Model.SelectRow(clickTarget);
                         RedrawAll();
@@ -284,7 +298,7 @@ public partial class MainWindow : Window
                     {
                         var output = SpreadsheetModel.FormatOutput(
                             Model.Rows[r].Output, Model.Rows[r].Status);
-                        cellBorder.Child = new TextBlock
+                        var outputTb = new TextBlock
                         {
                             Text = output,
                             VerticalAlignment = VerticalAlignment.Center,
@@ -295,6 +309,11 @@ public partial class MainWindow : Window
                             Foreground = Model.Rows[r].Status == CellStatus.Error
                                 ? Brushes.Red : Brushes.Black
                         };
+                        cellBorder.Child = outputTb;
+                        _outputCells[r] = outputTb;
+                        _outputBorders[r] = cellBorder;
+                        if (Model.Rows[r].Status == CellStatus.Running)
+                            ApplyRunningAnimation(cellBorder);
                     }
                 }
                 else if (r < Model.Rows.Count)
@@ -315,7 +334,7 @@ public partial class MainWindow : Window
                     else if (c == 1)
                     {
                         var output = SpreadsheetModel.FormatOutput(data.Output, data.Status);
-                        cellBorder.Child = new TextBlock
+                        var outputTb = new TextBlock
                         {
                             Text = output,
                             VerticalAlignment = VerticalAlignment.Center,
@@ -326,6 +345,11 @@ public partial class MainWindow : Window
                             Foreground = data.Status == CellStatus.Error
                                 ? Brushes.Red : Brushes.Black
                         };
+                        cellBorder.Child = outputTb;
+                        _outputCells[r] = outputTb;
+                        _outputBorders[r] = cellBorder;
+                        if (data.Status == CellStatus.Running)
+                            ApplyRunningAnimation(cellBorder);
                     }
                 }
 
@@ -352,6 +376,32 @@ public partial class MainWindow : Window
                 tbToFocus.CaretIndex = tbToFocus.Text.Length;
             });
         }
+    }
+
+    private void ApplyRunningAnimation(Border border)
+    {
+        border.BorderThickness = new Thickness(2);
+        var animBrush = new SolidColorBrush(Color.FromRgb(0x21, 0x73, 0x46));
+        border.BorderBrush = animBrush;
+        var anim = new ColorAnimation
+        {
+            From = Color.FromRgb(0x21, 0x73, 0x46),
+            To = Color.FromRgb(0xA0, 0xD8, 0xB0),
+            Duration = TimeSpan.FromSeconds(0.7),
+            AutoReverse = true,
+            RepeatBehavior = RepeatBehavior.Forever
+        };
+        animBrush.BeginAnimation(SolidColorBrush.ColorProperty, anim);
+    }
+
+    private static void StopRunningAnimation(Border border)
+    {
+        if (border.BorderBrush is SolidColorBrush brush && brush.HasAnimatedProperties)
+        {
+            brush.BeginAnimation(SolidColorBrush.ColorProperty, null);
+        }
+        border.BorderBrush = GridLineBrush;
+        border.BorderThickness = new Thickness(0, 0, 1, 1);
     }
 
     // ─── UI updates ──────────────────────────────────────────────
@@ -409,51 +459,131 @@ public partial class MainWindow : Window
             UpdateFormulaBar(tb.Text);
     }
 
-    private async void ActiveCell_KeyDown(object sender, KeyEventArgs e)
+    private void HandleCtrlC(KeyEventArgs e)
+    {
+        // Only kill if the active row is running — don't reach into other rows
+        if (Model.ActiveRowIndex >= Model.Rows.Count) return;
+        var target = Model.Rows[Model.ActiveRowIndex];
+        if (target.Status != CellStatus.Running || target.RunningProcess == null) return;
+
+        e.Handled = true;
+        target.WasCancelled = true;
+        Log($"Ctrl+C: killing process for row {target.RowNumber}");
+        try { target.RunningProcess.Kill(entireProcessTree: true); } catch { }
+    }
+
+    private void ActiveCell_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Enter) return;
         if (sender is not TextBox tb) return;
-        if (_isExecuting) return;
 
         var command = tb.Text.Trim();
         if (string.IsNullOrEmpty(command)) return;
 
+        // Guard: don't re-submit if this row is already running
+        var currentRow = Model.ActiveRowIndex;
+        if (currentRow < Model.Rows.Count && Model.Rows[currentRow].Status == CellStatus.Running)
+            return;
+
         e.Handled = true;
-        _isExecuting = true;
         tb.KeyDown -= ActiveCell_KeyDown;
         tb.TextChanged -= ActiveCell_TextChanged;
         tb.IsReadOnly = true;
 
         var data = Model.SubmitCommand(command);
+        var executingRow = currentRow;
 
-        StatusText.Text = " Calculating...";
-        Log($"Execute: '{command}' (row {Model.ActiveRowIndex})");
+        Log($"Execute: '{command}' (row {executingRow})");
 
+        // Move to next row immediately so user can type the next command
+        Model.MoveToNextEmptyRow();
+        RedrawAll();
+        ScrollToActiveRow();
+
+        // Fire-and-forget the streaming execution
+        _ = RunStreamingAsync(data, executingRow, command);
+    }
+
+    private async Task RunStreamingAsync(CellData data, int row, string command)
+    {
         try
         {
-            try
+            await CommandExecutor.ExecuteStreamingAsync(
+                command,
+                line => Dispatcher.InvokeAsync(() =>
+                {
+                    data.Output = string.IsNullOrEmpty(data.Output)
+                        ? line
+                        : data.Output + "\n" + line;
+
+                    if (_outputCells.TryGetValue(row, out var tb))
+                    {
+                        tb.Text = SpreadsheetModel.FormatOutput(data.Output, data.Status);
+                    }
+
+                    // Update expanded overlay if it's showing this row
+                    if (_expandedRow == row && _expandedTextBlock != null)
+                    {
+                        _expandedTextBlock.Text = data.Output;
+                        _expandedScroller?.ScrollToEnd();
+                    }
+                }),
+                process => Dispatcher.InvokeAsync(() => data.RunningProcess = process));
+
+            Dispatcher.Invoke(() =>
             {
-                var output = await CommandExecutor.ExecuteAsync(command);
-                data.Output = output;
-                data.Status = CellStatus.Complete;
-            }
-            catch (Exception ex)
+                if (data.WasCancelled)
+                {
+                    data.Output = string.IsNullOrEmpty(data.Output) ? "^C" : data.Output + "\n^C";
+                    data.Status = CellStatus.Error;
+                }
+                else if (data.Output.Contains("[Timed out"))
+                {
+                    data.Status = CellStatus.Error;
+                }
+                else
+                {
+                    data.Status = CellStatus.Complete;
+                }
+                data.RunningProcess = null;
+                data.WasCancelled = false;
+
+                Title = $"{CommandExecutor.WorkingDirectory} - Excel";
+                Log($"Execute done: row={row}, status={data.Status}, output={data.Output.Length} chars");
+
+                if (_outputBorders.TryGetValue(row, out var border))
+                    StopRunningAnimation(border);
+
+                if (_outputCells.TryGetValue(row, out var tb))
+                {
+                    tb.Text = SpreadsheetModel.FormatOutput(data.Output, data.Status);
+                    tb.Foreground = data.Status == CellStatus.Error ? Brushes.Red : Brushes.Black;
+                }
+
+                FinalizeExpandedOverlay(row, data);
+            });
+        }
+        catch (Exception ex)
+        {
+            Dispatcher.Invoke(() =>
             {
                 data.Output = ex.Message;
                 data.Status = CellStatus.Error;
-            }
+                data.RunningProcess = null;
 
-            StatusText.Text = " Ready";
-            Title = $"{CommandExecutor.WorkingDirectory} - Excel";
-            Log($"Execute done: status={data.Status}, output={data.Output.Length} chars");
+                Log($"Execute error: row={row}, {ex.Message}");
 
-            Model.MoveToNextEmptyRow();
-            RedrawAll();
-            ScrollToActiveRow();
-        }
-        finally
-        {
-            _isExecuting = false;
+                if (_outputBorders.TryGetValue(row, out var border))
+                    StopRunningAnimation(border);
+
+                if (_outputCells.TryGetValue(row, out var tb))
+                {
+                    tb.Text = SpreadsheetModel.FormatOutput(data.Output, data.Status);
+                    tb.Foreground = Brushes.Red;
+                }
+
+                FinalizeExpandedOverlay(row, data);
+            });
         }
     }
 
@@ -475,6 +605,9 @@ public partial class MainWindow : Window
         {
             CellCanvas.Children.Remove(_expandedOverlay);
             _expandedOverlay = null;
+            _expandedRow = -1;
+            _expandedTextBlock = null;
+            _expandedScroller = null;
         }
     }
 
@@ -516,17 +649,19 @@ public partial class MainWindow : Window
         var cellW = Model.ColWidths[col];
         var cellH = Model.GetRowHeight(row);
         bool isErr = col == 1 && data.Status == CellStatus.Error;
+        bool isRunning = col == 1 && data.Status == CellStatus.Running;
 
-        ExpandCell(text, cellX, cellY, cellW, cellH, isErr);
+        ExpandCell(row, text, cellX, cellY, cellW, cellH, isErr, isRunning);
         e.Handled = true;
     }
 
-    private void ExpandCell(string text, double cellLeft, double cellTop, double cellWidth, double cellHeight, bool isError)
+    private void ExpandCell(int row, string text, double cellLeft, double cellTop,
+        double cellWidth, double cellHeight, bool isError, bool isRunning)
     {
         DismissExpanded();
 
-        var maxW = Math.Max(200, GridScroller.ViewportWidth / 2);
-        var maxH = Math.Max(100, GridScroller.ViewportHeight);
+        var maxW = Math.Max(300, GridScroller.ViewportWidth * 0.6);
+        var maxH = Math.Max(150, GridScroller.ViewportHeight * 0.6);
 
         var tb = new TextBlock
         {
@@ -536,25 +671,55 @@ public partial class MainWindow : Window
             FontSize = Model.CellFontSize,
             Padding = new Thickness(6, 4, 6, 4),
             Foreground = isError ? Brushes.Red : Brushes.Black,
+        };
+
+        var sv = new ScrollViewer
+        {
+            Content = tb,
             MaxWidth = maxW,
-            MaxHeight = maxH
+            MaxHeight = maxH,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
         };
 
         var overlay = new Border
         {
             Background = Brushes.White,
-            BorderBrush = new SolidColorBrush(Color.FromRgb(0x40, 0x40, 0x40)),
             BorderThickness = new Thickness(1),
-            Child = tb,
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x40, 0x40, 0x40)),
+            Child = sv,
             MinWidth = cellWidth,
             MinHeight = cellHeight
         };
+
+        if (isRunning)
+            ApplyRunningAnimation(overlay);
 
         Canvas.SetLeft(overlay, cellLeft);
         Canvas.SetTop(overlay, cellTop);
         Panel.SetZIndex(overlay, 100);
         CellCanvas.Children.Add(overlay);
         _expandedOverlay = overlay;
+        _expandedRow = row;
+        _expandedTextBlock = tb;
+        _expandedScroller = sv;
+
+        // Auto-scroll to bottom for running cells
+        if (isRunning)
+            sv.ScrollToEnd();
+    }
+
+    private void FinalizeExpandedOverlay(int row, CellData data)
+    {
+        if (_expandedRow != row || _expandedOverlay == null) return;
+        StopRunningAnimation(_expandedOverlay);
+        _expandedOverlay.BorderBrush = new SolidColorBrush(Color.FromRgb(0x40, 0x40, 0x40));
+        _expandedOverlay.BorderThickness = new Thickness(1);
+        if (_expandedTextBlock != null)
+        {
+            _expandedTextBlock.Text = data.Output;
+            _expandedTextBlock.Foreground = data.Status == CellStatus.Error ? Brushes.Red : Brushes.Black;
+        }
     }
 
     // ─── Scroll sync ─────────────────────────────────────────────

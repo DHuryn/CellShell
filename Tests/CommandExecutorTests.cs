@@ -47,4 +47,31 @@ public class CommandExecutorTests
         var result = await CommandExecutor.ExecuteAsync("this_command_does_not_exist_xyz");
         Assert.False(string.IsNullOrEmpty(result));
     }
+
+    [Fact]
+    public async Task ExecuteStreaming_EchoCommand_CallsOnOutput()
+    {
+        var lines = new List<string>();
+        await CommandExecutor.ExecuteStreamingAsync("echo hello", line => lines.Add(line));
+        Assert.Contains(lines, l => l.Contains("hello"));
+    }
+
+    [Fact]
+    public async Task ExecuteStreaming_CdHome_CallsOnOutput()
+    {
+        var lines = new List<string>();
+        await CommandExecutor.ExecuteStreamingAsync("cd", line => lines.Add(line));
+        var expected = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        Assert.Contains(expected, lines);
+    }
+
+    [Fact]
+    public async Task ExecuteStreaming_MultipleLines_CallsOnOutputPerLine()
+    {
+        var lines = new List<string>();
+        await CommandExecutor.ExecuteStreamingAsync("echo line1 & echo line2", line => lines.Add(line));
+        Assert.True(lines.Count >= 2);
+        Assert.Contains(lines, l => l.Contains("line1"));
+        Assert.Contains(lines, l => l.Contains("line2"));
+    }
 }

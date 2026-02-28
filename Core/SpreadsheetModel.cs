@@ -124,19 +124,30 @@ public class SpreadsheetModel
 
     public static string FormatOutput(string output, CellStatus status)
     {
-        if (status == CellStatus.Running) return "Calculating...";
+        if (status == CellStatus.Running && string.IsNullOrEmpty(output))
+            return "Calculating...";
         if (string.IsNullOrEmpty(output)) return string.Empty;
 
+        string formatted;
         if (output.Contains('\n'))
         {
             var lines = output.Split('\n');
             var nonEmpty = lines.Where(l => !string.IsNullOrWhiteSpace(l)).ToArray();
             if (nonEmpty.Length > 1)
-                return nonEmpty[0].TrimEnd('\r') + $" [{nonEmpty.Length} lines]";
-            if (nonEmpty.Length == 1)
-                return nonEmpty[0].TrimEnd('\r');
-            return string.Empty; // all lines were whitespace
+                formatted = nonEmpty[0].TrimEnd('\r') + $" [{nonEmpty.Length} lines]";
+            else if (nonEmpty.Length == 1)
+                formatted = nonEmpty[0].TrimEnd('\r');
+            else
+                formatted = string.Empty;
         }
-        return output;
+        else
+        {
+            formatted = output;
+        }
+
+        if (status == CellStatus.Running && !string.IsNullOrEmpty(formatted))
+            return formatted + " ...";
+
+        return formatted;
     }
 }
