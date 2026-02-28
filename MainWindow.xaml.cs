@@ -541,6 +541,17 @@ public partial class MainWindow : Window
 
     private void Window_PreviewMouseMove(object sender, MouseEventArgs e)
     {
+        // Safety net: detect released button if MouseUp was missed (e.g. capture lost)
+        if (_dragMode != DragMode.None && e.LeftButton == MouseButtonState.Released)
+        {
+            Log($"Drag recovery: {_dragMode} index={_dragIndex}");
+            _dragMode = DragMode.None;
+            _dragRedrawTimer.Reset();
+            Mouse.Capture(null);
+            RedrawAll();
+            return;
+        }
+
         if (_dragMode == DragMode.ColumnResize)
         {
             var delta = e.GetPosition(this).X - _dragStartPos;
@@ -865,8 +876,9 @@ public partial class MainWindow : Window
         RowNumberScroller.ScrollToVerticalOffset(e.VerticalOffset);
         HeaderCanvas.RenderTransform = new TranslateTransform(-e.HorizontalOffset, 0);
 
-        // Re-render visible cells on actual scroll position changes
-        if (!_isRedrawing && (e.VerticalChange != 0 || e.HorizontalChange != 0))
+        // Re-render visible cells when scroll position or viewport size changes
+        if (!_isRedrawing && (e.VerticalChange != 0 || e.HorizontalChange != 0
+            || e.ViewportHeightChange != 0 || e.ViewportWidthChange != 0))
         {
             _isRedrawing = true;
             SaveDraftCommand();
